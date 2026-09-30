@@ -49,8 +49,9 @@ resnet_cells = [
 
 ---
 ### Objetivos del Cuaderno:
+0. **Configuracion de Entorno (Local o Google Colab / Kaggle)**: Deteccion inteligente de la carpeta `Dataset`.
 1. **Configuracion e Hiperparametros**: Configuracion centralizada de variables (`BATCH_SIZE`, `LEARNING_RATE`, `EPOCHS`, `IMAGE_SIZE=224`).
-2. **Data Pipeline & Augmentation**: Carga de imagenes de conjuntiva palpebral desde `IMAGENES/Dataset/` con aumentos biomedicos controlados.
+2. **Data Pipeline & Augmentation**: Carga de imagenes de conjuntiva palpebral desde `Dataset/` con aumentos biomedicos controlados.
 3. **Transfer Learning con ResNet-50**: Inicializacion con pesos preentrenados de ImageNet y cabezal de clasificacion optimizado con Dropout y regularizacion.
 4. **Manejo de Desbalance de Clases**: Ponderacion de funcion de perdida `CrossEntropyLoss` (346 Anemia vs 260 No anemia).
 5. **Entrenamiento y Checkpointing**: Registro de Loss/Accuracy por epoca y guardado automatico de `best_resnet50.pth`.
@@ -61,9 +62,21 @@ resnet_cells = [
 8. **Inferencia Individual**: Funcion `diagnosticar_anemia(image_path)` para diagnostico clinico instantaneo."""),
 
     create_cell('code', """# ==============================================================================
+# 0. CONFIGURACION PARA GOOGLE COLAB / KAGGLE (OPCIONAL EN NUBE)
+# ==============================================================================
+# Si ejecuta este cuaderno en Google Colab o Kaggle y subio 'Dataset.zip', descomente:
+# !unzip -q -o Dataset.zip
+
+# Si sus datos estan en Google Drive, descomente las siguientes lineas:
+# from google.colab import drive
+# drive.mount('/content/drive')
+"""),
+
+    create_cell('code', """# ==============================================================================
 # 1. IMPORTACION DE LIBRERIAS Y CONFIGURACION DEL ENTORNO
 # ==============================================================================
 import os
+import sys
 import random
 import time
 import copy
@@ -94,8 +107,38 @@ print(f"PyTorch Version: {torch.__version__}")
 print(f"TorchVision Version: {torchvision.__version__}")"""),
 
     create_cell('code', """# ==============================================================================
-# 2. CONFIGURACION CENTRALIZADA DE HIPERPARAMETROS (MODIFICABLE)
+# 2. LOCALIZADOR INTELIGENTE DEL DATASET Y CONFIGURACION DE HIPERPARAMETROS
 # ==============================================================================
+def resolver_ruta_dataset():
+    \"\"\"Localiza automaticamente la carpeta Dataset en entornos locales, Google Colab o Kaggle.\"\"\"
+    candidatos = [
+        'Dataset',
+        os.path.join('Dataset'),
+        os.path.join('IMAGENES', 'Dataset'),
+        os.path.join('..', 'IMAGENES', 'Dataset'),
+        os.path.join('..', 'Dataset'),
+        r'C:\\Proyectos\\luu\\IMAGENES\\Dataset',
+        '/content/Dataset',
+        '/content/IMAGENES/Dataset',
+        '/content/drive/MyDrive/Dataset',
+        '/content/drive/MyDrive/IMAGENES/Dataset',
+        '/kaggle/input/dataset',
+        '/kaggle/input/anemia-dataset'
+    ]
+    for ruta in candidatos:
+        if os.path.exists(os.path.join(ruta, 'train.csv')):
+            return os.path.abspath(ruta)
+
+    # Busqueda rapida en subdirectorios del directorio de trabajo actual
+    for root_dir in ['.', '..', '/content']:
+        if os.path.exists(root_dir):
+            for root, dirs, files in os.walk(root_dir):
+                if 'train.csv' in files and ('images' in dirs or os.path.exists(os.path.join(root, 'images'))):
+                    return os.path.abspath(root)
+    return 'Dataset'
+
+RUTA_DATASET_DETECTADA = resolver_ruta_dataset()
+
 CONFIG = {
     # Modelo y Datos
     'MODEL_NAME': 'ResNet-50',
@@ -111,8 +154,8 @@ CONFIG = {
     'DROPOUT_RATE': 0.4,          # Tasa de abandono para prevenir sobreajuste
     'SEED': 42,                   # Semilla para reproducibilidad cientifica
 
-    # Rutas relativas del proyecto
-    'DATA_DIR': os.path.join('..', 'IMAGENES', 'Dataset') if os.path.exists(os.path.join('..', 'IMAGENES', 'Dataset')) else os.path.join('Dataset'),
+    # Rutas del proyecto (puede modificarse manualmente si esta en otra carpeta)
+    'DATA_DIR': RUTA_DATASET_DETECTADA,
     'CHECKPOINT_PATH': 'best_resnet50.pth',
     'RESULTS_DIR': 'results'
 }
@@ -124,6 +167,7 @@ os.makedirs(CONFIG['RESULTS_DIR'], exist_ok=True)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 CONFIG['DEVICE'] = str(device)
 print(f"Dispositivo de ejecucion asignado: {device}")
+print(f"Ruta del Dataset asignada: {CONFIG['DATA_DIR']}")
 
 # Fijar semilla determinista
 def seed_everything(seed=42):
@@ -143,11 +187,32 @@ print("Semillas fijadas para reproducibilidad.")"""),
 # 3. VERIFICACION Y CARGA DE METADATOS DEL DATASET
 # ==============================================================================
 dataset_base = CONFIG['DATA_DIR']
-images_dir = os.path.join(dataset_base, 'images')
-
 train_csv = os.path.join(dataset_base, 'train.csv')
 val_csv = os.path.join(dataset_base, 'validation.csv')
 test_csv = os.path.join(dataset_base, 'test.csv')
+images_dir = os.path.join(dataset_base, 'images')
+
+# Verificacion preventiva con diagnostico detallado
+if not os.path.exists(train_csv):
+    cwd_actual = os.getcwd()
+    contenido_dir = os.listdir(cwd_actual)
+    raise FileNotFoundError(
+        f"\\n[ERROR CRITICO: ARCHIVO NO ENCONTRADO]\\n"
+        f"No se encontro 'train.csv' en la ruta configurada: '{dataset_base}'\\n"
+        f"Directorio de trabajo actual (os.getcwd()): '{cwd_actual}'\\n"
+        f"Archivos presentes en este directorio: {contenido_dir}\\n\\n"
+        f"COMO SOLUCIONARLO SEGUN SU ENTORNO:\\n"
+        f"1. Si esta en Google Colab:\\n"
+        f"   - Opcion A: Suba 'Dataset.zip' al panel de archivos de Colab (icono de carpeta a la izquierda)\\n"
+        f"     y ejecute en una celda de codigo: !unzip -q -o Dataset.zip\\n"
+        f"   - Opcion B: Si su dataset esta en Google Drive, montelo ejecutando:\\n"
+        f"     from google.colab import drive\\n"
+        f"     drive.mount('/content/drive')\\n"
+        f"     Y asigne la ruta en la Celda 2: CONFIG['DATA_DIR'] = '/content/drive/MyDrive/Dataset'\\n"
+        f"2. Si esta en su computadora local:\\n"
+        f"   Configure la ruta absoluta en la Celda 2:\\n"
+        f"   CONFIG['DATA_DIR'] = r'C:\\\\Proyectos\\\\luu\\\\IMAGENES\\\\Dataset'\\n"
+    )
 
 df_train = pd.read_csv(train_csv)
 df_val = pd.read_csv(val_csv)
@@ -281,7 +346,7 @@ def train_and_validate(model, train_loader, val_loader, criterion, optimizer, sc
     best_model_weights = copy.deepcopy(model.state_dict())
 
     start_time = time.time()
-    print(f"Iniciando entrenamiento de {CONFIG['MODEL_NAME']} durante {num_epochs} epocas en {device}...\n")
+    print(f"Iniciando entrenamiento de {CONFIG['MODEL_NAME']} durante {num_epochs} epocas en {device}...\\n")
     print(f"{'Epoca':<8} | {'Train Loss':<12} | {'Train Acc':<12} | {'Val Loss':<12} | {'Val Acc':<12} | {'Val F1':<10} | {'Estado'}")
     print("-" * 85)
 
@@ -365,7 +430,7 @@ def train_and_validate(model, train_loader, val_loader, criterion, optimizer, sc
         print(f"{epoch:^8} | {epoch_train_loss:^12.4f} | {epoch_train_acc * 100:^11.2f}% | {epoch_val_loss:^12.4f} | {epoch_val_acc * 100:^11.2f}% | {epoch_val_f1:^10.4f} | {status}")
 
     elapsed = time.time() - start_time
-    print(f"\nEntrenamiento finalizado en {elapsed // 60:.0f}m {elapsed % 60:.0f}s.")
+    print(f"\\nEntrenamiento finalizado en {elapsed // 60:.0f}m {elapsed % 60:.0f}s.")
     print(f"Mejor F1 en Validacion: {best_val_f1:.4f} (Guardado en {checkpoint_path})")
 
     model.load_state_dict(best_model_weights)
@@ -535,8 +600,9 @@ efficientnet_cells = [
 
 ---
 ### Objetivos del Cuaderno:
+0. **Configuracion de Entorno (Local o Google Colab / Kaggle)**: Deteccion inteligente de la carpeta `Dataset`.
 1. **Configuracion e Hiperparametros**: Configuracion nativa para EfficientNet-B3 (`IMAGE_SIZE=300`, `BATCH_SIZE=16`, `LEARNING_RATE=2e-4`).
-2. **Data Pipeline & Augmentation**: Carga de imagenes de conjuntiva palpebral desde `IMAGENES/Dataset/` con aumentos biomedicos controlados a 300x300.
+2. **Data Pipeline & Augmentation**: Carga de imagenes de conjuntiva palpebral desde `Dataset/` con aumentos biomedicos controlados a 300x300.
 3. **Transfer Learning con EfficientNet-B3**: Arquitectura basada en escalado compuesto (*Compound Scaling*), bloques MBConv (Inverted Residuals) y Squeeze-and-Excitation.
 4. **Manejo de Desbalance de Clases**: Ponderacion de funcion de perdida `CrossEntropyLoss` (346 Anemia vs 260 No anemia).
 5. **Entrenamiento y Checkpointing**: Registro de Loss/Accuracy por epoca y guardado de `best_efficientnet_b3.pth`.
@@ -547,9 +613,21 @@ efficientnet_cells = [
 8. **Cuadro Comparativo ResNet-50 vs EfficientNet-B3**: Sintesis automatica para el Capitulo VI ("Comparacion de modelos de redes neuronales")."""),
 
     create_cell('code', """# ==============================================================================
+# 0. CONFIGURACION PARA GOOGLE COLAB / KAGGLE (OPCIONAL EN NUBE)
+# ==============================================================================
+# Si ejecuta este cuaderno en Google Colab o Kaggle y subio 'Dataset.zip', descomente:
+# !unzip -q -o Dataset.zip
+
+# Si sus datos estan en Google Drive, descomente las siguientes lineas:
+# from google.colab import drive
+# drive.mount('/content/drive')
+"""),
+
+    create_cell('code', """# ==============================================================================
 # 1. IMPORTACION DE LIBRERIAS Y CONFIGURACION DEL ENTORNO
 # ==============================================================================
 import os
+import sys
 import random
 import time
 import copy
@@ -579,8 +657,38 @@ print(f"PyTorch Version: {torch.__version__}")
 print(f"TorchVision Version: {torchvision.__version__}")"""),
 
     create_cell('code', """# ==============================================================================
-# 2. CONFIGURACION CENTRALIZADA DE HIPERPARAMETROS (EFFICIENTNET-B3)
+# 2. LOCALIZADOR INTELIGENTE DEL DATASET Y CONFIGURACION DE HIPERPARAMETROS
 # ==============================================================================
+def resolver_ruta_dataset():
+    \"\"\"Localiza automaticamente la carpeta Dataset en entornos locales, Google Colab o Kaggle.\"\"\"
+    candidatos = [
+        'Dataset',
+        os.path.join('Dataset'),
+        os.path.join('IMAGENES', 'Dataset'),
+        os.path.join('..', 'IMAGENES', 'Dataset'),
+        os.path.join('..', 'Dataset'),
+        r'C:\\Proyectos\\luu\\IMAGENES\\Dataset',
+        '/content/Dataset',
+        '/content/IMAGENES/Dataset',
+        '/content/drive/MyDrive/Dataset',
+        '/content/drive/MyDrive/IMAGENES/Dataset',
+        '/kaggle/input/dataset',
+        '/kaggle/input/anemia-dataset'
+    ]
+    for ruta in candidatos:
+        if os.path.exists(os.path.join(ruta, 'train.csv')):
+            return os.path.abspath(ruta)
+
+    # Busqueda rapida en subdirectorios
+    for root_dir in ['.', '..', '/content']:
+        if os.path.exists(root_dir):
+            for root, dirs, files in os.walk(root_dir):
+                if 'train.csv' in files and ('images' in dirs or os.path.exists(os.path.join(root, 'images'))):
+                    return os.path.abspath(root)
+    return 'Dataset'
+
+RUTA_DATASET_DETECTADA = resolver_ruta_dataset()
+
 CONFIG = {
     # Modelo y Datos
     'MODEL_NAME': 'EfficientNet-B3',
@@ -596,8 +704,8 @@ CONFIG = {
     'DROPOUT_RATE': 0.3,          # Tasa de abandono estocastico
     'SEED': 42,                   # Semilla para reproducibilidad cientifica
 
-    # Rutas relativas del proyecto
-    'DATA_DIR': os.path.join('..', 'IMAGENES', 'Dataset') if os.path.exists(os.path.join('..', 'IMAGENES', 'Dataset')) else os.path.join('Dataset'),
+    # Rutas del proyecto
+    'DATA_DIR': RUTA_DATASET_DETECTADA,
     'CHECKPOINT_PATH': 'best_efficientnet_b3.pth',
     'RESULTS_DIR': 'results'
 }
@@ -607,6 +715,7 @@ os.makedirs(CONFIG['RESULTS_DIR'], exist_ok=True)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 CONFIG['DEVICE'] = str(device)
 print(f"Dispositivo de ejecucion asignado: {device}")
+print(f"Ruta del Dataset asignada: {CONFIG['DATA_DIR']}")
 
 def seed_everything(seed=42):
     random.seed(seed)
@@ -622,14 +731,34 @@ seed_everything(CONFIG['SEED'])
 print("Semillas fijadas para reproducibilidad.")"""),
 
     create_cell('code', """# ==============================================================================
-# 3. CARGA DE METADATOS Y DATA AUGMENTATION A 300x300
+# 3. VERIFICACION Y CARGA DE METADATOS DEL DATASET
 # ==============================================================================
 dataset_base = CONFIG['DATA_DIR']
-images_dir = os.path.join(dataset_base, 'images')
-
 train_csv = os.path.join(dataset_base, 'train.csv')
 val_csv = os.path.join(dataset_base, 'validation.csv')
 test_csv = os.path.join(dataset_base, 'test.csv')
+images_dir = os.path.join(dataset_base, 'images')
+
+if not os.path.exists(train_csv):
+    cwd_actual = os.getcwd()
+    contenido_dir = os.listdir(cwd_actual)
+    raise FileNotFoundError(
+        f"\\n[ERROR CRITICO: ARCHIVO NO ENCONTRADO]\\n"
+        f"No se encontro 'train.csv' en la ruta configurada: '{dataset_base}'\\n"
+        f"Directorio de trabajo actual (os.getcwd()): '{cwd_actual}'\\n"
+        f"Archivos presentes en este directorio: {contenido_dir}\\n\\n"
+        f"COMO SOLUCIONARLO SEGUN SU ENTORNO:\\n"
+        f"1. Si esta en Google Colab:\\n"
+        f"   - Opcion A: Suba 'Dataset.zip' al panel de archivos de Colab\\n"
+        f"     y ejecute en una celda de codigo: !unzip -q -o Dataset.zip\\n"
+        f"   - Opcion B: Si su dataset esta en Google Drive, montelo ejecutando:\\n"
+        f"     from google.colab import drive\\n"
+        f"     drive.mount('/content/drive')\\n"
+        f"     Y asigne la ruta en la Celda 2: CONFIG['DATA_DIR'] = '/content/drive/MyDrive/Dataset'\\n"
+        f"2. Si esta en su computadora local:\\n"
+        f"   Configure la ruta absoluta en la Celda 2:\\n"
+        f"   CONFIG['DATA_DIR'] = r'C:\\\\Proyectos\\\\luu\\\\IMAGENES\\\\Dataset'\\n"
+    )
 
 df_train = pd.read_csv(train_csv)
 df_val = pd.read_csv(val_csv)
@@ -650,6 +779,9 @@ class AnemiaConjunctivaDataset(Dataset):
         label = int(row['label'])
 
         img_path = os.path.join(self.img_dir, img_name)
+        if not os.path.exists(img_path):
+            raise FileNotFoundError(f"No se encontro la imagen: {img_path}")
+
         image = Image.open(img_path).convert('RGB')
 
         if self.transform:
@@ -743,7 +875,7 @@ def train_and_validate(model, train_loader, val_loader, criterion, optimizer, sc
     best_model_weights = copy.deepcopy(model.state_dict())
 
     start_time = time.time()
-    print(f"Iniciando entrenamiento de {CONFIG['MODEL_NAME']} durante {num_epochs} epocas en {device}...\n")
+    print(f"Iniciando entrenamiento de {CONFIG['MODEL_NAME']} durante {num_epochs} epocas en {device}...\\n")
     print(f"{'Epoca':<8} | {'Train Loss':<12} | {'Train Acc':<12} | {'Val Loss':<12} | {'Val Acc':<12} | {'Val F1':<10} | {'Estado'}")
     print("-" * 85)
 
@@ -827,7 +959,7 @@ def train_and_validate(model, train_loader, val_loader, criterion, optimizer, sc
         print(f"{epoch:^8} | {epoch_train_loss:^12.4f} | {epoch_train_acc * 100:^11.2f}% | {epoch_val_loss:^12.4f} | {epoch_val_acc * 100:^11.2f}% | {epoch_val_f1:^10.4f} | {status}")
 
     elapsed = time.time() - start_time
-    print(f"\nEntrenamiento finalizado en {elapsed // 60:.0f}m {elapsed % 60:.0f}s.")
+    print(f"\\nEntrenamiento finalizado en {elapsed // 60:.0f}m {elapsed % 60:.0f}s.")
     print(f"Mejor F1 en Validacion: {best_val_f1:.4f} (Guardado en {checkpoint_path})")
 
     model.load_state_dict(best_model_weights)

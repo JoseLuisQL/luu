@@ -23,6 +23,7 @@ C:\Proyectos\luu\
 │   │   ├── validation.csv               # 145 casos de validacion
 │   │   ├── test.csv                     # 137 casos de prueba final (no vistos)
 │   │   └── metadata.csv                 # Metadatos clinicos (HB, Edad, Sexo)
+│   ├── Dataset.zip                      # Archivo comprimido listo para Google Colab (70.58 MB)
 │   ├── ResNet-50.ipynb                  # Cuaderno de entrenamiento de ResNet-50
 │   ├── EfficientNet-B3.ipynb            # Cuaderno de entrenamiento de EfficientNet-B3
 │   ├── results\                         # Graficas de alta resolucion y CSVs generados
@@ -40,29 +41,28 @@ C:\Proyectos\luu\
 
 ## Instrucciones para Ejecutar los Modelos
 
-### En VS Code o Jupyter Notebook / JupyterLab
-1. Abra `C:\Proyectos\luu\IMAGENES\ResNet-50.ipynb`.
-2. Puede ajustar hiperparametros en la **Celda 2** (`CONFIG`):
-   ```python
-   CONFIG = {
-       'IMAGE_SIZE': 224,
-       'BATCH_SIZE': 16,
-       'EPOCHS': 25,
-       'LEARNING_RATE': 1e-4,
-       'WEIGHT_DECAY': 1e-4,
-       'DROPOUT_RATE': 0.4
-   }
-   ```
+### Escenario A: En su Computadora Local (VS Code, JupyterLab o Anaconda)
+1. Abra `ResNet-50.ipynb` o `EfficientNet-B3.ipynb`.
+2. El cuaderno localiza automaticamente la carpeta `Dataset` en su sistema.
 3. Ejecute las celdas en orden secuencial (o seleccione **Run All / Ejecutar Todo**).
 4. El cuaderno automaticamente:
    - Aplica Data Augmentation biomedico adaptado a conjuntiva palpebral.
    - Pondera la funcion de perdida para balancear clases (346 Anemia vs 260 No anemia).
-   - Guarda el mejor modelo en `best_resnet50.pth`.
+   - Guarda el mejor modelo en `best_resnet50.pth` o `best_efficientnet_b3.pth`.
    - Evalua en los 137 casos de `test.csv`.
-   - Genera la Matriz de Confusion, Curva ROC (AUC), y metricas clinicas de **Sensibilidad** y **Especificidad**.
-   - Guarda los graficos en `results/resnet50_graficas_tesis.png`.
-5. Abra y ejecute `C:\Proyectos\luu\IMAGENES\EfficientNet-B3.ipynb`.
-6. En la ultima celda de `EfficientNet-B3.ipynb`, se generara automaticamente el **Cuadro Comparativo** entre ResNet-50 y EfficientNet-B3 listo para insertar en el **Capitulo VI** de su tesis.
+   - Genera la Matriz de Confusion, Curva ROC (AUC), y metricas de **Sensibilidad** y **Especificidad**.
+   - Guarda los graficos en `results/`.
+5. Al ejecutar ambos cuadernos, la celda final de `EfficientNet-B3.ipynb` genera el **Cuadro Comparativo** para el **Capitulo VI** de su tesis.
+
+### Escenario B: En Google Colab o Kaggle (GPU en la Nube)
+1. Suba el archivo `ResNet-50.ipynb` a Google Colab.
+2. En el panel izquierdo de archivos de Colab (icono de carpeta):
+   - Arrastre y suba el archivo `Dataset.zip` que ya fue generado en `C:\Proyectos\luu\IMAGENES\Dataset.zip`.
+3. Ejecute la **Celda 0** del cuaderno para descomprimir el dataset:
+   ```bash
+   !unzip -q -o Dataset.zip
+   ```
+4. El localizador automatico del cuaderno detectara `/content/Dataset` y procedera con el entrenamiento en GPU acelerada (T4/V100/A100).
 
 ---
 
