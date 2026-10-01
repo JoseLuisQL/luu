@@ -64,6 +64,18 @@ C:\Proyectos\luu\
    ```
 4. El localizador automatico del cuaderno detectara `/content/Dataset` y procedera con el entrenamiento en GPU acelerada (T4/V100/A100).
 
+## Fases de la Metodologia KDD Implementadas en los Cuadernos
+
+Los cuadernos `ResNet-50.ipynb` y `EfficientNet-B3.ipynb` implementan de forma rigurosa las fases de la metodologia KDD (Knowledge Discovery in Databases) estipulada en la tesis:
+
+1. **Fase 1: Seleccion y EDA Clinico:** Analisis exploratorio de hemoglobina, edad en meses y distribucion demografica bajo criterios de la OMS, exportando la Tabla 1 y Figura 1 a 300 DPI segun norma APA 7ma edicion.
+2. **Fase 2: Preprocesamiento y Limpieza:** Cargador robusto para imagenes biomedicas que resuelve incidencias de CRC en chunks PNG (como `T_A95_img_002.png`), fusion de canales RGBA sobre fondo blanco neutro y saneamiento de etiquetas contradictorias para erradicar cualquier fuga de datos (*data leakage*).
+3. **Fase 3: Transformacion y Data Augmentation:** Normalizacion segun ImageNet, aumentos leves que preservan el matiz cromatico vascular de la conjuntiva palpebral y generacion de mosaicos clinicos comparativos a 300 DPI (224x224 px para ResNet-50 y 300x300 px para EfficientNet-B3).
+4. **Fase 4: Mineria de Datos y Modelado en Dos Fases:** Transfer Learning con arquitecturas convolucionales avanzadas (ResNet-50 de 24.5M parametros y EfficientNet-B3 de 12.2M parametros con MBConv y Squeeze-and-Excitation), aplicando Warmup de 5 epocas y Fine-Tuning progresivo de 20 epocas con decaimiento cosenoidal (`CosineAnnealingLR`) y perdida balanceada por clases.
+5. **Fase 5: Evaluacion Clinica e Interpretacion:** Evaluacion rigurosa en el conjunto de prueba independiente (`test.csv`, n = 137), calibracion del umbral clinico optimo de Youden ($J = Sensibilidad + Especificidad - 1$) para minimizar falsos negativos y falsos positivos, calculo de metricas con intervalos de confianza al 95% (Wilson) y graficos academicos a 300 DPI (curvas de aprendizaje, matrices de confusion y ROC-AUC).
+6. **Fase 6: Despliegue e Interoperabilidad:** Exportacion validada a formato abierto ONNX (`.onnx`) y TorchScript (`.pt`) con verificacion de paridad numerica ($Error < 10^{-4}$) para su integracion en el aplicativo movil del centro de salud.
+7. **Protocolo Multiejecucion y Contraste Estadistico:** Evaluacion con 5 semillas independientes ([42, 101, 202, 303, 404]) para certificar la repetibilidad clinica (Corcuff & Leveque, 2006) y contraste formal de hipotesis mediante pruebas t de Student y Wilcoxon para sustentar el Capitulo VI de la tesis.
+
 ---
 
 ## Metricas Clinicas Evaluadas para la Tesis
