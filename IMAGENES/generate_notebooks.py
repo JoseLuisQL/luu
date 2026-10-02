@@ -65,7 +65,7 @@ El presente cuaderno implementa de manera rigurosa las fases del proceso KDD (De
     c3_src = c3_src.replace("'LR_BACKBONE': 1e-4", "'LR_BACKBONE': 5e-5")
     c3_src = c3_src.replace("'DROPOUT_RATE': 0.4", "'DROPOUT_RATE': 0.3")
     c3_src = c3_src.replace("best_resnet50.pth", "best_efficientnet_b3.pth")
-    c3_src = c3_src.replace("Bloques convolucionales layer3 y layer4", "Bloques convolucionales MBConv features.6-8")
+    c3_src = c3_src.replace("Capas profundas layer3 y layer4", "Bloques convolucionales MBConv features.6-8")
     effnet_cells.append(create_cell('code', c3_src))
 
     # CELDA 4: KDD FASE 1 EDA (Igual)
@@ -77,7 +77,8 @@ El presente cuaderno implementa de manera rigurosa las fases del proceso KDD (De
     # CELDA 6: KDD FASE 3 TRANSFORMACION Y PREVISUALIZACION (300x300 px)
     c6_src = ''.join(resnet_cells[6]['source'])
     c6_src = c6_src.replace("ResNet-50", "EfficientNet-B3")
-    c6_src = c6_src.replace("figura_previsualizacion_clinica_data_aug.png", "figura_previsualizacion_clinica_effnet_b3.png")
+    c6_src = c6_src.replace("figura_previsualizacion_clinica_resnet50.png", "figura_previsualizacion_clinica_efficientnet_b3.png")
+    c6_src = c6_src.replace("figura_previsualizacion_clinica_data_aug.png", "figura_previsualizacion_clinica_efficientnet_b3.png")
     effnet_cells.append(create_cell('code', c6_src))
 
     # CELDA 7: KDD FASE 4 MODELO EFFICIENTNET-B3
@@ -85,8 +86,49 @@ El presente cuaderno implementa de manera rigurosa las fases del proceso KDD (De
 # 6. KDD FASE 4: CONSTRUCCION DE EFFICIENTNET-B3 CON TRANSFER LEARNING
 # ==============================================================================
 def build_efficientnet_b3_model(num_classes=2, dropout_rate=0.3):
-    weights = models.EfficientNet_B3_Weights.DEFAULT
-    model = models.efficientnet_b3(weights=weights)
+    \"\"\"
+    Construye la arquitectura EfficientNet-B3 con pesos preentrenados de ImageNet-1K.
+    Sustituye el clasificador final por un cabezal con regularizacion Dropout y BatchNorm.
+    Incluye resolucion de conectividad en la nube (Kaggle / Colab) y busqueda de pesos locales.
+    \"\"\"
+    model = None
+    try:
+        weights = models.EfficientNet_B3_Weights.DEFAULT
+        model = models.efficientnet_b3(weights=weights)
+        print("Pesos preentrenados de EfficientNet-B3 (ImageNet-1K) cargados exitosamente desde PyTorch Hub.")
+    except Exception as e:
+        print(f"Aviso: No fue posible descargar pesos directamente de PyTorch Hub ({type(e).__name__}).")
+        print("Buscando archivos de pesos preentrenados locales en el entorno...")
+
+        peso_local = None
+        if os.path.exists('/kaggle/input'):
+            for root, _, files in os.walk('/kaggle/input'):
+                for f in files:
+                    if 'efficientnet_b3' in f.lower() and f.endswith(('.pth', '.pt')):
+                        peso_local = os.path.join(root, f)
+                        break
+                if peso_local:
+                    break
+
+        if peso_local:
+            print(f"Cargando pesos preentrenados desde archivo local: {peso_local}")
+            model = models.efficientnet_b3(weights=None)
+            state_dict = torch.load(peso_local, map_location='cpu')
+            if 'state_dict' in state_dict:
+                state_dict = state_dict['state_dict']
+            model.load_state_dict(state_dict, strict=False)
+            print("Pesos preentrenados locales cargados satisfactoriamente.")
+        else:
+            raise RuntimeError(
+                "ERROR DE CONECTIVIDAD AL DESCARGAR PESOS PREENTRENADOS:\\n"
+                "PyTorch no pudo conectarse al servidor para descargar los pesos de EfficientNet-B3.\\n"
+                "En Kaggle, este error ocurre habitualmente cuando la opcion de Internet esta desactivada.\\n\\n"
+                "INSTRUCCIONES PARA ACTIVAR INTERNET EN KAGGLE:\\n"
+                "1. Dirijase al panel lateral derecho de su cuaderno ('Notebook options' o 'Settings').\\n"
+                "2. Ubique la seccion 'Internet' y active el interruptor ('Internet On').\\n"
+                "   (Kaggle solicita verificacion telefonica gratuita de su cuenta para habilitar conexion).\\n"
+                "3. Una vez activado el acceso a Internet, vuelva a ejecutar esta celda."
+            ) from e
 
     in_features = model.classifier[1].in_features # 1536 en EfficientNet-B3
     model.classifier = nn.Sequential(
@@ -240,6 +282,14 @@ if datos_disponibles:
         ]
     })
 else:
+    _sens = f"{sensibilidad * 100:.2f}%" if 'sensibilidad' in locals() else 'Pendiente'
+    _esp = f"{especificidad * 100:.2f}%" if 'especificidad' in locals() else 'Pendiente'
+    _acc = f"{acc * 100:.2f}%" if 'acc' in locals() else 'Pendiente'
+    _prec = f"{precision * 100:.2f}%" if 'precision' in locals() else 'Pendiente'
+    _vpn = f"{vpn * 100:.2f}%" if 'vpn' in locals() else 'Pendiente'
+    _f1 = f"{f1:.4f}" if 'f1' in locals() else 'Pendiente'
+    _auc = f"{auc_roc:.4f}" if 'auc_roc' in locals() else 'Pendiente'
+
     tabla_comparativa = pd.DataFrame({
         'Metrica Clinica Evaluada': [
             'Sensibilidad (Recall / Deteccion de Casos)',
@@ -258,13 +308,13 @@ else:
             '24,560,706 (24.5M)', '224 x 224 px'
         ],
         'EfficientNet-B3 (Tan & Le, 2019)': [
-            f"{sensibilidad * 100:.2f}%",
-            f"{especificidad * 100:.2f}%",
-            f"{acc * 100:.2f}%",
-            f"{precision * 100:.2f}%",
-            f"{vpn * 100:.2f}%",
-            f"{f1:.4f}",
-            f"{auc_roc:.4f}",
+            _sens,
+            _esp,
+            _acc,
+            _prec,
+            _vpn,
+            _f1,
+            _auc,
             '12,233,832 (12.2M)',
             '300 x 300 px'
         ]

@@ -181,26 +181,109 @@ print("Librerias cientificas importadas y semilla de reproducibilidad fijada en 
     cells.append(create_cell('code', """# ==============================================================================
 # 2. LOCALIZADOR INTELIGENTE DEL DATASET Y DICCIONARIO DE HIPERPARAMETROS
 # ==============================================================================
-def resolver_ruta_dataset():
-    \"\"\"Localiza recursivamente la carpeta Dataset en entornos locales y en la nube.\"\"\"
-    posibles_rutas = [
-        os.path.join(os.getcwd(), 'Dataset'),
-        os.path.join(os.getcwd(), '..', 'Dataset'),
-        r'C:\\Proyectos\\luu\\IMAGENES\\Dataset',
-        '/content/Dataset',
-        '/kaggle/input/anemia-infantil/Dataset',
-        os.path.join(os.path.dirname(os.path.abspath('__file__')), 'Dataset')
-    ]
-    for ruta in posibles_rutas:
-        if os.path.isdir(ruta) and os.path.exists(os.path.join(ruta, 'images')):
-            return os.path.abspath(ruta)
-    raise FileNotFoundError(
-        "No se pudo localizar el directorio 'Dataset/images'.\\n"
-        "Verifique que la carpeta 'Dataset' este en la ruta de ejecucion o descomprima 'Dataset.zip'."
-    )
+# CONFIGURACION DE RUTA KAGGLE / LOCAL / COLAB:
+# Si su dataset en Kaggle tiene un nombre especifico (ej. 'dataset-anemia-oco'), puede fijarlo aqui:
+# RUTA_MANUAL_KAGGLE = '/kaggle/input/dataset-anemia-oco'
+# Deje en None para deteccion automatica inteligente en Kaggle, Colab o Local:
+RUTA_MANUAL_KAGGLE = None
 
-RUTA_DATASET = resolver_ruta_dataset()
-print(f"Directorio del Dataset validado: {RUTA_DATASET}")
+def resolver_rutas_dataset(ruta_manual=None):
+    \"\"\"
+    Localiza recursivamente los archivos CSV y la carpeta de imagenes en cualquier entorno,
+    desacoplando el directorio de metadatos (CSV) del directorio de imagenes clinicas.
+    \"\"\"
+    csvs_requeridos = ['train.csv', 'validation.csv', 'test.csv', 'metadata.csv']
+
+    # 1. Definicion de rutas raiz candidatas
+    candidatos_raiz = []
+    if ruta_manual and os.path.exists(ruta_manual):
+        candidatos_raiz.append(os.path.abspath(ruta_manual))
+
+    if os.path.exists('/kaggle/input'):
+        candidatos_raiz.append('/kaggle/input')
+    if os.path.exists('/content'):
+        candidatos_raiz.append('/content')
+
+    cwd = os.getcwd()
+    candidatos_raiz.extend([
+        cwd,
+        os.path.join(cwd, 'Dataset'),
+        os.path.join(cwd, 'IMAGENES', 'Dataset'),
+        os.path.join(cwd, '..', 'Dataset'),
+        r'C:\\Proyectos\\luu\\IMAGENES\\Dataset',
+        os.path.join(os.path.dirname(os.path.abspath('__file__')), 'Dataset')
+    ])
+
+    # 2. Busqueda de la carpeta contenedora de los archivos CSV
+    data_dir_encontrado = None
+    for base in candidatos_raiz:
+        if not os.path.exists(base):
+            continue
+
+        if all(os.path.exists(os.path.join(base, f)) for f in csvs_requeridos):
+            data_dir_encontrado = os.path.abspath(base)
+            break
+
+        for root, dnames, files in os.walk(base):
+            rel = os.path.relpath(root, base)
+            if len(rel.split(os.sep)) > 6:
+                del dnames[:]
+                continue
+            if all(f in files for f in csvs_requeridos):
+                data_dir_encontrado = os.path.abspath(root)
+                break
+        if data_dir_encontrado:
+            break
+
+    if not data_dir_encontrado:
+        raise FileNotFoundError(
+            f"No se encontro la carpeta con los archivos CSV del dataset ({', '.join(csvs_requeridos)}).\\n"
+            "Verifique que el dataset este cargado o configure la variable 'RUTA_MANUAL_KAGGLE'."
+        )
+
+    # 3. Busqueda de la carpeta contenedora de las imagenes (IMG0001.png / IMG0002.png)
+    img_dir_encontrado = None
+    posibles_carpetas_img = [
+        os.path.join(data_dir_encontrado, 'images'),
+        os.path.join(data_dir_encontrado, 'Images'),
+        data_dir_encontrado,
+        os.path.join(os.path.dirname(data_dir_encontrado), 'images'),
+        os.path.join(os.path.dirname(data_dir_encontrado), 'Images')
+    ]
+
+    for d in posibles_carpetas_img:
+        if os.path.isdir(d):
+            archivos_d = set(os.listdir(d))
+            if any(f.upper().startswith('IMG') and f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in archivos_d):
+                img_dir_encontrado = os.path.abspath(d)
+                break
+
+    if not img_dir_encontrado:
+        bases_busqueda_img = ['/kaggle/input'] if os.path.exists('/kaggle/input') else [data_dir_encontrado, cwd]
+        for base in bases_busqueda_img:
+            for root, dnames, files in os.walk(base):
+                rel = os.path.relpath(root, base)
+                if len(rel.split(os.sep)) > 6:
+                    del dnames[:]
+                    continue
+                if any(f.upper().startswith('IMG') and f.lower().endswith(('.png', '.jpg', '.jpeg')) for f in files):
+                    img_dir_encontrado = os.path.abspath(root)
+                    break
+            if img_dir_encontrado:
+                break
+
+    if not img_dir_encontrado:
+        raise FileNotFoundError(
+            f"Archivos CSV encontrados en: {data_dir_encontrado}\\n"
+            "Sin embargo, no fue posible localizar la carpeta con las imagenes clinicas ('IMG0001.png').\\n"
+            "Verifique la estructura del dataset o configure la variable 'RUTA_MANUAL_KAGGLE'."
+        )
+
+    return data_dir_encontrado, img_dir_encontrado
+
+RUTA_DATA, RUTA_IMG = resolver_rutas_dataset(RUTA_MANUAL_KAGGLE)
+print(f"Directorio de Metadatos CSV validado : {RUTA_DATA}")
+print(f"Directorio de Imagenes Medicas validado: {RUTA_IMG}")
 
 CONFIG = {
     'MODEL_NAME': 'ResNet-50',
@@ -216,12 +299,12 @@ CONFIG = {
     'DROPOUT_RATE': 0.4,
     'NUM_CLASSES': 2,
     'CLASS_NAMES': ['No anemia', 'Anemia'],
-    'DATA_DIR': RUTA_DATASET,
-    'IMG_DIR': os.path.join(RUTA_DATASET, 'images'),
-    'TRAIN_CSV': os.path.join(RUTA_DATASET, 'train.csv'),
-    'VAL_CSV': os.path.join(RUTA_DATASET, 'validation.csv'),
-    'TEST_CSV': os.path.join(RUTA_DATASET, 'test.csv'),
-    'METADATA_CSV': os.path.join(RUTA_DATASET, 'metadata.csv'),
+    'DATA_DIR': RUTA_DATA,
+    'IMG_DIR': RUTA_IMG,
+    'TRAIN_CSV': os.path.join(RUTA_DATA, 'train.csv'),
+    'VAL_CSV': os.path.join(RUTA_DATA, 'validation.csv'),
+    'TEST_CSV': os.path.join(RUTA_DATA, 'test.csv'),
+    'METADATA_CSV': os.path.join(RUTA_DATA, 'metadata.csv'),
     'CHECKPOINT_DIR': os.path.join(os.getcwd(), 'checkpoints'),
     'RESULTS_DIR': os.path.join(os.getcwd(), 'results'),
     'MODELS_ONNX_DIR': os.path.join(os.getcwd(), 'models_onnx'),
@@ -369,7 +452,7 @@ def load_image_robust(img_path):
             return Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB))
 
 # Verificacion de integridad de todas las imagenes del dataset
-print("Ejecutando auditoria forense de integridad en las 890 imagenes...")
+print(f"Ejecutando auditoria forense de integridad en las {len(df_meta['image'].unique())} imagenes del dataset...")
 imagenes_fallidas = []
 modos_color = {}
 
@@ -522,9 +605,46 @@ def build_resnet50_model(num_classes=2, dropout_rate=0.4):
     \"\"\"
     Construye la arquitectura ResNet-50 con pesos preentrenados de ImageNet-1K.
     Sustituye la capa final por un cabezal de clasificacion con regularizacion Dropout y BatchNorm.
+    Incluye resolucion de conectividad en la nube (Kaggle / Colab) y busqueda de pesos locales.
     \"\"\"
-    weights = models.ResNet50_Weights.DEFAULT
-    model = models.resnet50(weights=weights)
+    model = None
+    try:
+        weights = models.ResNet50_Weights.DEFAULT
+        model = models.resnet50(weights=weights)
+        print("Pesos preentrenados de ResNet-50 (ImageNet-1K) cargados exitosamente desde PyTorch Hub.")
+    except Exception as e:
+        print(f"Aviso: No fue posible descargar pesos directamente de PyTorch Hub ({type(e).__name__}).")
+        print("Buscando archivos de pesos preentrenados locales en el entorno...")
+
+        peso_local = None
+        if os.path.exists('/kaggle/input'):
+            for root, _, files in os.walk('/kaggle/input'):
+                for f in files:
+                    if 'resnet50' in f.lower() and f.endswith(('.pth', '.pt')):
+                        peso_local = os.path.join(root, f)
+                        break
+                if peso_local:
+                    break
+
+        if peso_local:
+            print(f"Cargando pesos preentrenados desde archivo local: {peso_local}")
+            model = models.resnet50(weights=None)
+            state_dict = torch.load(peso_local, map_location='cpu')
+            if 'state_dict' in state_dict:
+                state_dict = state_dict['state_dict']
+            model.load_state_dict(state_dict, strict=False)
+            print("Pesos preentrenados locales cargados satisfactoriamente.")
+        else:
+            raise RuntimeError(
+                "ERROR DE CONECTIVIDAD AL DESCARGAR PESOS PREENTRENADOS:\\n"
+                "PyTorch no pudo conectarse al servidor para descargar los pesos de ResNet-50.\\n"
+                "En Kaggle, este error ocurre habitualmente cuando la opcion de Internet esta desactivada.\\n\\n"
+                "INSTRUCCIONES PARA ACTIVAR INTERNET EN KAGGLE:\\n"
+                "1. Dirijase al panel lateral derecho de su cuaderno ('Notebook options' o 'Settings').\\n"
+                "2. Ubique la seccion 'Internet' y active el interruptor ('Internet On').\\n"
+                "   (Kaggle solicita verificacion telefonica gratuita de su cuenta para habilitar conexion).\\n"
+                "3. Una vez activado el acceso a Internet, vuelva a ejecutar esta celda."
+            ) from e
 
     in_features = model.fc.in_features # 2048 en ResNet-50
     model.fc = nn.Sequential(
